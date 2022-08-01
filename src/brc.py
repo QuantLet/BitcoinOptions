@@ -285,10 +285,6 @@ class BRC:
             ]
         else:
             pipeline = [
-
-                # Bid cannot be 0 in IV. This would distort the mean.
-                {'$match': {'bid_iv': {"$gt": 0.02}}},
-
                 {
                     '$group':{"_id": { "$dateToString": { "format": "%Y-%m-%d", "date": {'$toDate': '$timestamp' } }},
                             'avg_ask': {'$avg': '$ask_iv'},
