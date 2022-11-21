@@ -30,7 +30,6 @@ from scipy import interpolate
 from mpl_toolkits.mplot3d import Axes3D
 from pathlib import Path
 from src.brc import BRC
-from src.tee import Tee
 from src.strategies import IronCondor
 from rpy2 import robjects
 from src.helpers import save_dict, load_dict
@@ -40,37 +39,6 @@ from sklearn.neighbors import KernelDensity
 from mpl_toolkits import mplot3d
 
 
-"""
-
-@ Todo:
-1) Often, for higher maturities, finding an instrument in the strategy_range will fail because the spd is not interpolated!!
-2) Probability for realization of profit.
-
-From last session:
-make a film out of the hockey graphics, maybe also with moneyness on x axis
-boxplot for the multiple scatter plots (especially on put side as in example)
-convert .tex file to keynote
-correct epsilon, insert 'small' adj before infinitesimally
-
-Generally:
-- Implied Binomial Trees
-- Historical SPD
-- Skewness / Kurtosis Trades
-
-todo: 
-    annualize returns!!
-    get realized variance! plot vs garch variance and vs implied volatility
-    
-# can only read profit using pickle!!
-
-"""
-
-def gausskernel(x):
-    return (1/np.sqrt(2 * np.pi)) * np.exp(- 0.5 * x**2)
-
-def create_kernelmatrix(regressors):
-    return np.diag(gausskernel(regressors))
-    
 def decompose_instrument_name(_instrument_names, tradedate, round_tau_digits = 4):
     """
     Input:
@@ -322,7 +290,6 @@ def rookley_unique_tau(df, h_m, h_t=0.01, gridsize=149, kernel='epak', boot_iv =
     x = zip(M_std, tau)
     sig = np.zeros((num, 3)) # fill
 
-    # TODO: speed up with tensor instead of loop
     for i, (m, t) in enumerate(x):
         sig[i] = smoothing_rookley(df, m, t, h_m, h_t, kernel, extend = False, boot = boot_iv)
 
@@ -478,53 +445,6 @@ def wild_bootstrap(x, n_boot):
     out = (greater + smaller).T * x.values
 
     return out.T
-
-def sandwich(spd, m, h_m, kernel = gaussian_kernel_squared):
-    """
-    Sandwich Estimator for Variance of Pricing Kernel M
-    See Weining Wang's Paper
-    """
-    
-    M = np.array(spd.pk)
-    q = np.array(spd.spdy)
-    p = np.array(spd.gy)
-    n = len(M)
-
-    H = np.diag([1, h_m, h_m**2, h_m**3])
-    H_inv = np.linalg.pinv(H)
-
-    T = np.array([1] * len(M))
-
-    o = []
-    for i in range(n):
-        for j in range(T):
-
-            m = M[i]
-
-            X1 = np.ones(n)
-            X2 = M - m
-            X3 = (M-m)**2
-            X4 = (M-m)**3
-            X = np.array([X1, X2, X3, X4]).T
-
-            ker = kernel(M, m, h_m)
-
-            np.dot(H_inv, X)
-
-
-
-
-
-    # Compare Kernels
-    # This kernel gives too much weight on far-away deviations
-    #plt.scatter(M, ker, color = 'green')
-    #plt.scatter(M, X[:,5], color = 'red')
-    #plt.vlines(m, ymin = 0, ymax = 1)
-    #plt.show()
-
-    XTW = np.dot(X.T, W)
-
-    beta = np.linalg.pinv(np.dot(XTW, X)).dot(XTW).dot(y)
 
 
 def kde2D(x, y, h, xbins=100j, ybins=100j, likelihood = False, **kwargs): 
@@ -1132,7 +1052,7 @@ def run(curr_day):
     brc = BRC()
 
     # Simulation Methods
-    simmethods = ['SVCJ'] # ['brownian', 'svcj']
+    simmethods = ['oldschool'] # ['brownian', 'svcj']
 
     # Tau-maturitydate combination dict
     tau_maturitydate = {}
@@ -1260,8 +1180,6 @@ def run(curr_day):
                 print(tau)
 
                 sub = filter_sub(df, curr_day_starttime, curr_day_endtime, tau)
-                #s, sub  = spdbl(df, curr_day_starttime, curr_day_endtime, tau, int_rate, blockplots = True, bootstrap = False, physical_density=None)
-                #area = verify_density(s)
 
                 # Prepare Confidence Band Calculation for the whole Day
                 conf_fname = prepare_confidence_band_data(sub)
@@ -1278,18 +1196,10 @@ def run(curr_day):
                 # and we have more than 1 day until maturity
                 if time_to_maturity_in_days > 1:
 
-                    # Todo: Compare svcj results to old hd results
                     for simmethod in simmethods:
-
-                        #hockeystick(sub, tau, curr_day, r_bandwidth)
-
-                        # Todo:
-                        # Tau needs to match for sp500 data and deribit data!!
-                        # is like 0.39 for sp500 data!!
 
                         print(conf_fname)
                         
-                        #print('Use Synthetic BTC Index here')
                         # For Mongo deribit_orderbooks
                         spd_btc, tau_btc = bootstrap(conf_fname, 'data/BTC_USD_Quandl.csv', rdate_f, tau, simmethod, r, 'out/deribit/', r_bandwidth)
                         
@@ -1300,17 +1210,6 @@ def run(curr_day):
                             
                             # Also save data for Vola Smile and Term Structure
                             sub.to_csv('out/movies/sub_' + str(tau) + '_' + str(curr_day_starttime) + '.csv')
-
-
-                        #pdb.set_trace()
-                        # For SP500 data
-                        #spd_sp500, tau_sp500 = bootstrap('data/SP500_OMON_sep_multi.csv', 'data/gspc.csv', rdate_f, tau, simmethod, r, 'out/sp500/', r_bandwidth)
-                        #if spd_sp500 is not None:
-                        #    spd_sp500.to_csv('out/movies/sp500_pk_' + str(tau_sp500[0]) + '_' + str(curr_day_starttime) + '.csv')
-
-                        # Combine in Plot
-                        #if spd_btc is not None and spd_sp500 is not None:
-                        #    plot_epks(spd_btc, spd_sp500, tau_btc[0], tau_sp500[0], simmethod, curr_day_starttime, r_bandwidth)
                         
                 else:
                     print('SPD is not a valid density, proceeding with the next one')
@@ -1328,35 +1227,20 @@ def run(curr_day):
 if __name__ == '__main__':
     print('starting non multi main...')
 
-    # Maturitydate is determined in plot_epks
-
-    # Blacklist existing output
-    #existing_files = os.listdir('pricingkernel/plots')
-
     brc = BRC()
     
     # Start in Q1 2021 for exactly one year
     # Paper Start
-    #startdate = datetime.datetime(2021,4,1)
-    # Paper End
-    #enddate = datetime.datetime(2022,4,1)
-
-    # Debugging Start, End
-    startdate = datetime.datetime(2022,1,1)
-    enddate = datetime.datetime(2022,1,8)
-    run_dates = [startdate]
+    startdate = datetime.datetime(2021,4,1)
     curr_date = startdate
-    #curr_date = datetime.datetime(2022, 2, 4,0,0,0)
-    #run_dates = [curr_date]
+    # Paper End
+    enddate = datetime.datetime(2022,4,1)
+    run_dates = [curr_date]
     
     while curr_date < enddate:
         curr_date += datetime.timedelta(1)
-        #out = next((s for s in existing_files if curr_date.strftime('%Y-%m-%d') in s), None) 
-        #print(out)
-        #if out is None:
         run_dates.append(curr_date)
 
-    # r_bandwidth = 0.06
     for d in run_dates:
         try:
             print(d)
